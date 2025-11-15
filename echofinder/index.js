@@ -82,40 +82,70 @@ export default (app) => {
       console.log(`Score: ${(bestScore * 100).toFixed(1)}%`);
       console.log(`Threshold: ${(SIMILARITY_THRESHOLD * 100).toFixed(1)}%`);
 
-      // If score is above threshold, post comment
       if (bestScore > SIMILARITY_THRESHOLD) {
-        console.log(`\n✅ SCORE ABOVE THRESHOLD - Posting comment...\n`);
+          console.log(`\n✅ SCORE ABOVE THRESHOLD - Posting comment...\n`);
 
-        const comment = `🔍 **Potential Duplicate Found**\n\n` +
-          `This issue is very similar to **#${bestMatchIssue.number}**: "${bestMatchIssue.title}"\n\n` +
-          `📊 **Similarity Score:** ${(bestScore * 100).toFixed(1)}%\n\n` +
-          `Please review if this is a duplicate. If confirmed, you can close this issue.`;
+          const comment = `🔍 **Potential Duplicate Found**\n\n` +
+            `This issue is very similar to **#${bestMatchIssue.number}**: "${bestMatchIssue.title}"\n\n` +
+            `📊 **Similarity Score:** ${(bestScore * 100).toFixed(1)}%\n\n` +
+            `Please review if this is a duplicate. If confirmed, you can close this issue.`;
 
-        await context.octokit.issues.createComment({
-          owner,
-          repo,
-          issue_number: issue.number,
-          body: comment
-        });
-
-        console.log('✅ Comment posted successfully');
-
-        // Try to add label
-        try {
-          await context.octokit.issues.addLabels({
+          await context.octokit.issues.createComment({
             owner,
             repo,
             issue_number: issue.number,
-            labels: ['duplicate?']
+            body: comment
           });
-          console.log('🏷️ Label "duplicate?" added');
-        } catch (labelError) {
-          console.log('ℹ️ Could not add label (label may not exist in repo)');
+
+          console.log('✅ Comment posted successfully');
+
+          // Add label to NEW issue (the one just created)
+          try {
+            await context.octokit.issues.addLabels({
+              owner,
+              repo,
+              issue_number: issue.number,
+              labels: ['duplicate?']
+            });
+            console.log('🏷️ Label "duplicate?" added to new issue #' + issue.number);
+          } catch (labelError) {
+            console.log('ℹ️ Could not add label to new issue (label may not exist in repo)');
+          }
+
+          // Add label to ORIGINAL issue (the most similar one)
+          try {
+            await context.octokit.issues.addLabels({
+              owner,
+              repo,
+              issue_number: bestMatchIssue.number,
+              labels: ['has-duplicates']
+            });
+            console.log('🏷️ Label "has-duplicates" added to original issue #' + bestMatchIssue.number);
+          } catch (labelError) {
+            console.log('ℹ️ Could not add label to original issue (label may not exist in repo)');
+          }
+
+          // Post a notice on the ORIGINAL issue to inform maintainers
+          try {
+            const originalNotice = `🔔 Note: A new issue (#${issue.number}) was opened that appears to be a possible duplicate of this issue.\n\n` +
+              `**New issue title:** "${issue.title}"\n` +
+              `📊 **Similarity:** ${(bestScore * 100).toFixed(1)}%\n\n` +
+              `Please review and consider merging, closing, or cross-referencing the issues.`;
+            await context.octokit.issues.createComment({
+              owner,
+              repo,
+              issue_number: bestMatchIssue.number,
+              body: originalNotice
+            });
+            console.log('💬 Comment posted to original issue #' + bestMatchIssue.number);
+          } catch (origCommentError) {
+            console.log('ℹ️ Could not post comment to original issue:', origCommentError.message);
+          }
+
+        } else {
+          console.log(`\n⏭️ Score below threshold (${(bestScore * 100).toFixed(1)}% < ${(SIMILARITY_THRESHOLD * 100).toFixed(1)}%)`);
+          console.log('No comment posted.');
         }
-      } else {
-        console.log(`\n⏭️ Score below threshold (${(bestScore * 100).toFixed(1)}% < ${(SIMILARITY_THRESHOLD * 100).toFixed(1)}%)`);
-        console.log('No comment posted.');
-      }
 
       console.log(`\n${'='.repeat(50)}\n`);
 
